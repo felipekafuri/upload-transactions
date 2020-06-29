@@ -1,13 +1,14 @@
 import { getCustomRepository, getRepository } from 'typeorm';
-import TransactionsRepository from '../repositories/TransactionsRepository';
-import Transaction from '../models/Transaction';
 import AppError from '../errors/AppError';
+import TransactionsRepository from '../repositories/TransactionsRepository';
+
 import Category from '../models/Category';
+import Transaction from '../models/Transaction';
 
 interface Request {
   title: string;
-  type: 'income' | 'outcome';
   value: number;
+  type: 'income' | 'outcome';
   category: string;
 }
 
@@ -21,38 +22,34 @@ class CreateTransactionService {
     const transactionsRepository = getCustomRepository(TransactionsRepository);
     const categoryRepository = getRepository(Category);
 
-    const { total } = await transactionsRepository.getBalance();
-
-    if (!['income', 'outcome'].includes(type))
-      throw new AppError('Transaction type is invalid');
-
-    if (type === 'outcome' && total < value)
-      throw new AppError('You do not have enough balance', 401);
-
-    let transactionCategory = await categoryRepository.findOne({
-      where: {
-        title: category,
-      },
+    let checkCategoryExist = await categoryRepository.findOne({
+      where: { title: category },
     });
 
-    if (!transactionCategory) {
-      transactionCategory = categoryRepository.create({
+    if (!checkCategoryExist) {
+      checkCategoryExist = categoryRepository.create({
         title: category,
       });
 
-      await categoryRepository.save(transactionCategory);
+      await categoryRepository.save(checkCategoryExist);
+    }
+
+    if (type === 'outcome') {
+      const { total } = await transactionsRepository.getBalance();
+
+      if (total - value < 0) {
+        throw new AppError(
+          "You can't create an outcome that are greater than your total",
+        );
+      }
     }
 
     const transaction = transactionsRepository.create({
       title,
       value,
       type,
-      category: transactionCategory,
+      category: checkCategoryExist,
     });
-
-    if (typeof value !== 'number') {
-      throw new AppError('Value is not a valid number!', 401);
-    }
 
     await transactionsRepository.save(transaction);
 
